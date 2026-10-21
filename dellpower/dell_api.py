@@ -15,6 +15,7 @@ import time
 
 import httpx
 
+from .dell_config import asset_to_groups, groups_to_items
 from .mock_data import DEMO_ASSETS
 
 TAG_RE = re.compile(r"^[A-Z0-9]{5,10}$")
@@ -74,35 +75,17 @@ class DellClient:
 
 
 def normalize_asset(data: dict) -> dict:
-    """API 응답 -> {service_tag, model, ship_date, items:[{description, quantity}]}"""
+    """API 응답 -> {service_tag, model, ship_date, items:[{description, quantity, ...}]}"""
     model = (data.get("systemDescription") or data.get("productLineDescription")
              or data.get("productId") or "Unknown")
-    items: dict[tuple, dict] = {}
-    for comp in data.get("components") or []:
-        desc = (comp.get("itemDescription") or comp.get("partDescription")
-                or comp.get("description") or "").strip()
-        if not desc:
-            continue
-        qty = comp.get("partQuantity") or comp.get("itemQuantity") or comp.get("quantity") or 1
-        key = (comp.get("itemNumber") or desc, comp.get("partNumber") or "")
-        # 동일 SKU/부품 중복 행은 수량 합산
-        if key in items:
-            items[key]["quantity"] += int(qty)
-        else:
-            items[key] = {"description": desc, "quantity": int(qty),
-                          "sku": comp.get("itemNumber")}
-    # 같은 SKU 가 여러 part 로 쪼개진 경우(예: 키트) 첫 part 만 사용
-    merged: dict[str, dict] = {}
-    for (sku, _part), it in items.items():
-        if sku in merged and merged[sku]["description"] == it["description"]:
-            continue
-        merged.setdefault(sku, it)
+    groups = asset_to_groups(data.get("components") or [])
+    found_model, items = groups_to_items(groups)
     return {
         "service_tag": data.get("serviceTag"),
-        "model": model,
+        "model": model if model != "Unknown" else (found_model or model),
         "ship_date": data.get("shipDate"),
         "country": data.get("countryCode"),
-        "items": list(merged.values()),
+        "items": items,
     }
 
 

@@ -14,6 +14,17 @@ BIOS 시스템 프로파일별 소비전력을 추정합니다.
 출력: 유휴/일반/최대 AC 전력(W), 발열(BTU/h), 전류(A), 연간 kWh·전기요금, 부품별 DC 분해,
 PSU 리던던시(1+1) 경고, iDRAC Power Cap 적용, CSV 다운로드.
 
+## 사용 방법 (추천: 구성 CSV)
+
+1. dell.com 지원 페이지에서 서비스태그 조회 → 제품 사양(구성) → **CSV로 내보내기**
+2. 웹 화면 **구성 CSV** 탭에서 파일 선택 → 바로 계산
+
+- Dell API 키나 로그인 없이 동작합니다. 한국어/영문 CSV, UTF-8/CP949 모두 지원합니다.
+- SKU 그룹(`338-CHSK : 인텔 제온 골드 6434 ...`) 아래의 실제 부품 행(`PRC`, `DIMM`, `SSDR`, `CRD,NTWK` …) 수량으로 부품 수를 셉니다.
+  나사/라벨/INFO 행이나 정보성 SKU(예: `5600MT/s RDIMMs`)는 제외합니다.
+- 주문에 `성능 BIOS 설정(384-BBBL)`이 있으면 기본설정을 Performance 프로파일로 표시합니다.
+- 파일명에 서비스태그(7자리)가 있으면 결과에 함께 표시합니다.
+
 ## 실행
 
 ```bash
@@ -36,6 +47,7 @@ uvicorn dellpower.main:app --host 0.0.0.0 --port 8000
 ## REST API
 
 - `GET /api/servicetag/{tag}?utilization=0.5&kwh_rate=180&pue=1.0&voltage=220&power_cap=`
+- `POST /api/estimate/csv` — `{"csv":"<CSV 텍스트>","filename":"ABC1234.csv","options":{...}}`
 - `POST /api/estimate` — `{"model":"PowerEdge R760","text":"2 x Intel Xeon Gold 6430 (270W)\n16 x 64GB RDIMM, 4800MT/s","options":{...}}`
 
 ## 계산 모델

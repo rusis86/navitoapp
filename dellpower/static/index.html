@@ -53,14 +53,20 @@ h2{font-size:15px;margin:0 0 10px}
 </head>
 <body>
 <header><h1>Dell PowerEdge 전력 계산기</h1>
-<p>서비스태그 → 출하 구성 조회 → BIOS 프로파일별(퍼포먼스/밸런스/저전력) 소비전력 추정</p></header>
+<p>dell.com 구성 CSV 또는 서비스태그 → BIOS 프로파일별(기본설정/퍼포먼스/밸런스/저전력) 소비전력 추정</p></header>
 <main>
 <section class="card">
   <div class="tabs">
-    <button id="t-tag" class="on" onclick="tab('tag')">서비스태그</button>
-    <button id="t-man" onclick="tab('man')">구성 직접 입력</button>
+    <button id="t-csv" class="on" onclick="tab('csv')">구성 CSV</button>
+    <button id="t-tag" onclick="tab('tag')">서비스태그</button>
+    <button id="t-man" onclick="tab('man')">직접 입력</button>
   </div>
-  <div id="p-tag">
+  <div id="p-csv">
+    <label>dell.com 구성 CSV 파일</label>
+    <input id="csvFile" type="file" accept=".csv,text/csv" onchange="run()">
+    <div class="hint">dell.com 지원 → 서비스태그 조회 → 제품 사양(구성) 보기 → CSV 내보내기 한 파일을 그대로 올리세요. 파일명에 서비스태그가 있으면 자동 표시됩니다.</div>
+  </div>
+  <div id="p-tag" class="hidden">
     <label>서비스태그</label>
     <input id="tag" placeholder="예: ABC1234" autocapitalize="characters">
     <div class="hint" id="apiState"></div>
@@ -92,13 +98,19 @@ h2{font-size:15px;margin:0 0 10px}
 <script>
 const $=id=>document.getElementById(id);
 const COLORS={performance:'var(--perf)',balanced:'var(--bal)',ppw_os:'var(--os)',low_power:'var(--low)'};
-const CAT={cpu:'CPU',memory:'메모리',drive:'드라이브',controller:'RAID/HBA',boss:'BOSS',nic:'NIC/FC',gpu:'GPU',platform:'플랫폼',fan:'팬',psu:'PSU'};
-let mode='tag', last=null;
+const CAT={cpu:'CPU',memory:'메모리',drive:'드라이브',controller:'RAID/HBA',boss:'BOSS',nic:'NIC/FC',gpu:'GPU',platform:'플랫폼',fan:'팬',psu:'PSU',transceiver:'트랜시버'};
+let mode='csv', last=null;
 const fmt=n=>n==null?'-':Number(n).toLocaleString('ko-KR');
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-function tab(m){mode=m;$('t-tag').classList.toggle('on',m==='tag');$('t-man').classList.toggle('on',m==='man');
-  $('p-tag').classList.toggle('hidden',m!=='tag');$('p-man').classList.toggle('hidden',m!=='man');}
+function tab(m){mode=m;for(const k of ['csv','tag','man']){$('t-'+k).classList.toggle('on',m===k);$('p-'+k).classList.toggle('hidden',m!==k);}}
+
+async function readCsv(file){
+  // dell.com CSV 는 UTF-8(BOM) 이 기본, 엑셀로 다시 저장한 파일은 CP949 일 수 있음
+  const buf=await file.arrayBuffer();
+  try{return new TextDecoder('utf-8',{fatal:true}).decode(buf);}
+  catch(e){return new TextDecoder('euc-kr').decode(buf);}
+}
 
 fetch('/api/info').then(r=>r.json()).then(i=>{
   $('apiState').textContent=i.dell_api_configured?'Dell TechDirect API 연결됨':'Dell API 키 미설정 — 데모 태그 또는 직접 입력을 사용하세요';
@@ -112,7 +124,11 @@ async function run(){
   const o=opts(); $('out').innerHTML='<div class="card">계산 중…</div>';
   try{
     let r;
-    if(mode==='tag'){
+    if(mode==='csv'){
+      const f=$('csvFile').files[0]; if(!f) throw new Error('CSV 파일을 선택하세요');
+      r=await fetch('/api/estimate/csv',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({csv:await readCsv(f),filename:f.name,options:o})});
+    }else if(mode==='tag'){
       const tag=$('tag').value.trim(); if(!tag) throw new Error('서비스태그를 입력하세요');
       const q=new URLSearchParams({utilization:o.utilization,kwh_rate:o.kwh_rate,pue:o.pue,voltage:o.voltage});
       if(o.power_cap) q.set('power_cap',o.power_cap);
@@ -134,7 +150,7 @@ function render(d){
   const df=d.default_profile;
   if(df&&df.points){
     h+=`<section class="card def"><h2>기본설정 전력 <span class="meta">(출하 BIOS 기본값)</span></h2>
-    <div class="meta">${esc(df.bios)}</div>
+    <div class="meta">${esc(df.bios)}${df.source==='order'?' · <b>주문 구성에 지정된 BIOS 설정</b>':' · 플랫폼 출하 기본값'}</div>
     <div class="tiles"><div class="tile">유휴<b>${fmt(Math.round(df.points.idle))}W</b></div>
     <div class="tile">일반 ${Math.round(d.assumptions.typical_utilization*100)}%<b>${fmt(Math.round(df.points.typical))}W</b></div>
     <div class="tile">최대<b>${fmt(Math.round(df.points.max))}W</b></div></div>

@@ -22,6 +22,7 @@ class HardwareConfig:
     components: list[Component] = field(default_factory=list)
     ignored: list[str] = field(default_factory=list)       # 전력 무관 항목
     unrecognized: list[str] = field(default_factory=list)  # 분류 실패 항목
+    factory_profile: str | None = None  # 주문 시 지정된 BIOS 프로파일 (예: 384-BBBL 성능 BIOS 설정)
 
     def of(self, category: str) -> list[Component]:
         return [c for c in self.components if c.category == category]
@@ -30,13 +31,46 @@ class HardwareConfig:
         return asdict(self)
 
 
+# dell.com 한국어 구성 설명 -> 영문 키워드 (긴 것부터 치환)
+_KO_EN = [
+    ("매우 고성능", "Very High Performance"), ("고성능", "High Performance"),
+    ("전원 공급 장치", "Power Supply"), ("전원 코드", "Power Cord"), ("점퍼 코드", "Jumper Cord"),
+    ("파이버 채널", "Fibre Channel"), ("옵티컬 트랜시버", "Optical Transceiver"),
+    ("트랜시버", "Transceiver"), ("옵티컬", "Optical"),
+    ("듀얼 포트", "Dual Port"), ("쿼드 포트", "Quad Port"), ("싱글 포트", "Single Port"),
+    ("싱글 랭크", "Single Rank"), ("듀얼 랭크", "Dual Rank"), ("쿼드 랭크", "Quad Rank"),
+    ("인텔", "Intel"), ("제온", "Xeon"), ("플래티넘", "Platinum"), ("골드", "Gold"),
+    ("실버", "Silver"), ("브론즈", "Bronze"), ("프로세서", "Processor"),
+    ("핫플러그", "Hot-plug"), ("중복", "Redundant"), ("듀얼", "Dual"),
+    ("어댑터", "Adapter"), ("드라이브", "Drive"), ("인치", "in"), ("섀시", "Chassis"),
+    ("히트싱크", "Heatsink"), ("마더보드", "Motherboard"), ("라이저", "Riser"),
+    ("레일", "Rail"), ("베젤", "Bezel"), ("블랭크", "Blank"), ("배송", "Shipping"),
+    ("케이블", "Cable"), ("메자닌", "Mezzanine"), ("팬", "Fan"), ("서버", "Server"),
+    ("성능 BIOS 설정", "Performance BIOS Settings"),
+    ("필요 없음", "None"), ("불필요", "None"), ("없음", "None"), ("미구성", "Unconfigured"),
+]
+
+
+def normalize_text(desc: str) -> str:
+    d = desc
+    for ko, en in _KO_EN:
+        d = d.replace(ko, f" {en} ")
+    return re.sub(r"\s+", " ", d).strip()
+
+
+_NONE = re.compile(
+    r"\b(none|not included|not installed|not required|blank|filler|disabled|unconfigured)\b",
+    re.IGNORECASE)
+_PERF_BIOS = re.compile(r"performance bios|enable performance mode", re.IGNORECASE)
+
 # 전력과 무관하거나 무시할 항목
 _IGNORE = re.compile(
     r"\b(no |none|not included|blank|bezel|rail|cable|cord|documentation|doc kit|"
     r"shipping|label|warranty|prosupport|support|service|software|license|"
     r"windows|vmware|esxi|red ?hat|ubuntu|suse|os |operating system|media|"
     r"heatsink|heat sink|idrac|jumper|keyboard|mouse|cma|cable management|"
-    r"trusted platform|tpm|quick sync|openmanage|idrac\d* ?(enterprise|datacenter|express|basic)|"
+    r"trusted platform|tpm|quick sync|openmanage|connectivity|static ip|luggage|energy star|"
+    r"mechanical|chassis|drive slot|idrac\d* ?(enterprise|datacenter|express|basic)|"
     r"chassis intrusion|packaging|setup|install|deployment|dimm blank|"
     r"motherboard|system board|riser|configuration|unconfigured|raid ?\d+ |"
     r"performance bios|power saving|bios setting|uefi|front bezel|lcd)",
@@ -231,16 +265,20 @@ def _parse_psu(desc: str) -> dict:
 
 def classify(description: str) -> str | None:
     """설명 문자열의 부품 카테고리를 반환. 무시 대상은 'ignore', 미분류는 None."""
-    d = description.strip()
+    d = normalize_text(description)
     if not d:
         return "ignore"
+    if _NONE.search(d):
+        return "ignore"
+    if re.search(r"transceiver|\boptic", d, re.I):
+        return "transceiver"
     if _PSU.search(d):
         return "psu"
     if _CPU.search(d) and not re.search(r"heatsink|heat sink|upgrade kit|bios", d, re.I):
         return "cpu"
     if _MEM.search(d):
         return "memory"
-    if _BOSS.search(d):
+    if _BOSS.search(d) and not re.search(r"blank|mechanical", d, re.I):
         return "boss"
     if re.search(r"connectx|\bGbE\b|ethernet|\bNIC\b|\bSFP|\bQSFP|\bOSFP|InfiniBand|\bNDR|\bHDR", d, re.I) \
             and not re.search(r"riser|cable|transceiver|optic", d, re.I):
@@ -249,7 +287,8 @@ def classify(description: str) -> str | None:
         return "gpu"
     if _DRIVE.search(d) and not re.search(r"backplane|chassis with|blank", d, re.I):
         return "drive"
-    if re.search(r"\bPERC\b|\bHBA\d{3}|\bH\d{3}[A-Z]?\b.*(RAID|controller|adapter|front|internal)", d, re.I):
+    if re.search(r"\bPERC\b|\bHBA\d{3}|\bH\d{3}[A-Z]?\b.*(RAID|controller|adapter|front|internal)", d, re.I) \
+            and not re.search(r"chassis|slot|mechanical|shroud|cable", d, re.I):
         return "controller"
     if _NIC.search(d) and not re.search(r"riser|cable|transceiver|optic", d, re.I):
         return "nic"
@@ -268,7 +307,10 @@ def build_config(model: str, items: list[dict]) -> HardwareConfig:
         qty = int(it.get("quantity") or 1)
         if qty <= 0:
             continue
-        cat = classify(desc)
+        norm = normalize_text(desc)
+        if _PERF_BIOS.search(norm):
+            cfg.factory_profile = "performance"
+        cat = "ignore" if it.get("info_only") else classify(desc)
         if cat == "ignore":
             cfg.ignored.append(desc)
             continue
@@ -279,8 +321,11 @@ def build_config(model: str, items: list[dict]) -> HardwareConfig:
             "cpu": _parse_cpu, "memory": _parse_memory, "drive": _parse_drive,
             "controller": _parse_controller, "nic": _parse_nic, "gpu": _parse_gpu,
             "psu": _parse_psu, "boss": lambda _d: {}, "fan": _parse_fan,
+            "transceiver": _parse_transceiver,
         }[cat]
-        cfg.components.append(Component(cat, desc, qty, parser(desc)))
+        # 해석은 영문 정규화 문자열 + (있으면) Dell 부품 설명으로
+        detail = it.get("detail") or ""
+        cfg.components.append(Component(cat, desc, qty, parser(f"{norm} {detail}".strip())))
     return cfg
 
 
@@ -314,3 +359,14 @@ def parse_text_config(text: str) -> list[dict]:
         qty = int(m.group(1) or m.group(2) or 1)
         items.append({"description": m.group(3), "quantity": qty})
     return items
+
+
+def _parse_transceiver(desc: str) -> dict:
+    d = desc.upper()
+    if re.search(r"QSFP|OSFP|100G|200G|400G", d):
+        kind = "QSFP"
+    elif re.search(r"SFP28|25G", d):
+        kind = "SFP28"
+    else:
+        kind = "SFP"
+    return {"kind": kind}

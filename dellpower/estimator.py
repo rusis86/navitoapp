@@ -149,6 +149,10 @@ def component_power(cfg: HardwareConfig, prof: Profile, u: float) -> list[dict]:
             idle, mx = bi + pi * c.attrs["ports"], bm + pm * c.attrs["ports"]
         add("nic", c.description, c.quantity, _scale(idle, mx, u))
 
+    for c in cfg.of("transceiver"):
+        w = catalog.TRANSCEIVER_POWER[c.attrs["kind"]]
+        add("transceiver", c.description, c.quantity, _scale(w * 0.8, w, u))
+
     for c in cfg.of("gpu"):
         tdp = c.attrs["tdp"]
         add("gpu", c.description, c.quantity,
@@ -196,6 +200,8 @@ def default_profile_key(cfg: HardwareConfig) -> str:
     Intel 플랫폼: Performance Per Watt (DAPC)
     AMD 플랫폼:   Performance Per Watt (OS)  (DAPC 옵션 없음)
     """
+    if cfg.factory_profile in PROFILES:
+        return cfg.factory_profile  # 주문 시 BIOS 프로파일이 지정된 경우
     cpus = cfg.of("cpu")
     if cpus and cpus[0].attrs.get("vendor") == "AMD":
         return "ppw_os"
@@ -204,7 +210,8 @@ def default_profile_key(cfg: HardwareConfig) -> str:
 
 def available_profiles(cfg: HardwareConfig) -> list[str]:
     keys = list(PROFILES)
-    if default_profile_key(cfg) == "ppw_os":
+    cpus = cfg.of("cpu")
+    if cpus and cpus[0].attrs.get("vendor") == "AMD":
         keys.remove("balanced")  # AMD BIOS에는 DAPC가 없음
     # 기본설정을 맨 앞으로
     d = default_profile_key(cfg)
@@ -275,6 +282,7 @@ def estimate(cfg: HardwareConfig, utilization: float = DEFAULT_UTILIZATION,
         },
         "default_profile": {
             "key": default_key,
+            "source": "order" if cfg.factory_profile == default_key else "platform",
             "name": PROFILES[default_key].name,
             "bios": PROFILES[default_key].bios,
             "points": {k: base["points"][k]["ac_watts"] for k in ("idle", "typical", "max")}

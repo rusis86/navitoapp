@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from .dell_api import DellApiError, DellClient, lookup
 from .estimator import PROFILES, estimate
 from .mock_data import DEMO_ASSETS
+from .dell_config import parse_dell_csv
 from .parser import build_config, parse_text_config
 
 STATIC = Path(__file__).parent / "static"
@@ -93,3 +94,19 @@ def manual(req: ManualRequest):
     if not items:
         raise HTTPException(status_code=400, detail="구성 항목이 없습니다.")
     return _run(req.model, items, req.options, {"source": "manual"})
+
+
+class CsvRequest(BaseModel):
+    csv: str = Field(..., description="dell.com 에서 내려받은 구성 CSV 텍스트")
+    filename: str | None = None
+    options: Options = Options()
+
+
+@app.post("/api/estimate/csv")
+def from_csv(req: CsvRequest):
+    try:
+        parsed = parse_dell_csv(req.csv, req.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    meta = {"service_tag": parsed["service_tag"], "source": "dell.com CSV"}
+    return _run(parsed["model"], parsed["items"], req.options, meta)

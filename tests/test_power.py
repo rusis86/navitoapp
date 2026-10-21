@@ -69,13 +69,13 @@ def test_psu_redundancy_warning():
     assert any("리던던시" in w for w in r["warnings"])
 
 
-def test_normalize_merges_duplicate_rows():
+def test_normalize_counts_key_parts():
     data = {"systemDescription": "PowerEdge R750", "components": [
-        {"itemNumber": "338-X", "itemDescription": "Intel Xeon Gold 6338 (205W)", "partNumber": "P1", "partQuantity": 1},
-        {"itemNumber": "338-X", "itemDescription": "Intel Xeon Gold 6338 (205W)", "partNumber": "P1", "partQuantity": 1},
+        {"itemNumber": "338-X", "itemDescription": "Intel Xeon Gold 6338 (205W)", "partNumber": "C1", "partDescription": "CLP,LKG,CPU", "partQuantity": 1},
+        {"itemNumber": "338-X", "itemDescription": "Intel Xeon Gold 6338 (205W)", "partNumber": "P1", "partDescription": "PRC,6338,2.0,32C,205W", "partQuantity": 2},
     ]}
     n = normalize_asset(data)
-    assert n["items"] == [{"description": "Intel Xeon Gold 6338 (205W)", "quantity": 2, "sku": "338-X"}]
+    assert [(i["description"], i["quantity"]) for i in n["items"]] == [("Intel Xeon Gold 6338 (205W)", 2)]
 
 
 def test_parse_text():
@@ -107,3 +107,57 @@ def test_default_profile(tag, default, has_dapc):
     assert ("balanced" in [x["key"] for x in r["profiles"]]) == has_dapc
     low = next(x for x in r["profiles"] if x["key"] == "low_power")
     assert low["vs_default"]["max"] < 0 and low["vs_default_cost"] < 0
+
+
+# ---------------------------------------------------------------- dell.com CSV
+from pathlib import Path  # noqa: E402
+
+from dellpower.dell_config import parse_dell_csv  # noqa: E402
+
+FIXTURE = Path(__file__).parent / "fixtures" / "r760_order_ko.csv"
+
+
+def _csv_cfg():
+    parsed = parse_dell_csv(FIXTURE.read_text(encoding="utf-8-sig"), "B5VBTB4.csv")
+    return parsed, build_config(parsed["model"], parsed["items"])
+
+
+def test_csv_model_and_tag():
+    parsed, cfg = _csv_cfg()
+    assert parsed["model"] == "PowerEdge R760"
+    assert parsed["service_tag"] == "B5VBTB4"
+    assert cfg.form_factor == "2U"
+
+
+def test_csv_quantities_from_key_parts():
+    _, cfg = _csv_cfg()
+    q = lambda cat: sum(c.quantity for c in cfg.of(cat))  # noqa: E731
+    assert q("cpu") == 2 and cfg.of("cpu")[0].attrs["tdp"] == 195
+    assert q("memory") == 12                       # 16GB DDR5 x12 (정보성 '5600MT/s RDIMMs' 제외)
+    assert cfg.of("memory")[0].attrs["generation"] == "DDR5"
+    assert q("drive") == 3                         # 960GB SATA x1 + 800GB SAS x2
+    assert q("transceiver") == 8
+    assert q("psu") == 2 and cfg.of("psu")[0].attrs["watts"] == 1400
+    nics = {(c.attrs["type"], c.attrs["speed"]): c.quantity for c in cfg.of("nic")}
+    assert nics[("ETH", 25)] == 4 and nics[("ETH", 1)] == 1
+    assert sum(c.quantity for c in cfg.of("nic") if c.attrs["type"] == "FC") == 3
+    assert [c.attrs["model"] for c in cfg.of("controller")] == ["H755"]
+    assert not cfg.of("boss")                      # 'BOSS 블랭크' 는 부품 아님
+    assert cfg.unrecognized == []
+
+
+def test_csv_factory_performance_bios_is_default():
+    _, cfg = _csv_cfg()
+    assert cfg.factory_profile == "performance"    # 384-BBBL 성능 BIOS 설정
+    r = estimate(cfg)
+    assert r["default_profile"]["key"] == "performance"
+    assert r["default_profile"]["source"] == "order"
+
+
+def test_csv_api():
+    c = TestClient(app)
+    r = c.post("/api/estimate/csv", json={"csv": FIXTURE.read_text(encoding="utf-8-sig"), "filename": "B5VBTB4.csv"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["model"] == "PowerEdge R760" and body["asset"]["service_tag"] == "B5VBTB4"
+    assert c.post("/api/estimate/csv", json={"csv": ""}).status_code == 400
