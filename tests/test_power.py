@@ -45,10 +45,11 @@ def test_profiles_order(tag):
     a = lookup(tag)
     r = estimate(build_config(a["model"], a["items"]))
     p = {x["key"]: x["points"] for x in r["profiles"]}
-    # 유휴: 퍼포먼스 > 밸런스 > 저전력
-    assert p["performance"]["idle"]["ac_watts"] > p["balanced"]["idle"]["ac_watts"] > p["low_power"]["idle"]["ac_watts"]
+    d = r["default_profile"]["key"]
+    # 유휴: 퍼포먼스 > 기본설정 > 저전력
+    assert p["performance"]["idle"]["ac_watts"] > p[d]["idle"]["ac_watts"] > p["low_power"]["idle"]["ac_watts"]
     # 최대: 저전력이 가장 낮음
-    assert p["low_power"]["max"]["ac_watts"] < p["balanced"]["max"]["ac_watts"]
+    assert p["low_power"]["max"]["ac_watts"] < p[d]["max"]["ac_watts"]
     for v in p.values():
         assert v["idle"]["ac_watts"] < v["typical"]["ac_watts"] < v["max"]["ac_watts"]
         assert v["max"]["ac_watts"] > v["max"]["dc_watts"]  # PSU 손실
@@ -86,7 +87,23 @@ def test_api():
     c = TestClient(app)
     assert c.get("/").status_code == 200
     r = c.get("/api/servicetag/demo740?utilization=0.3")
-    assert r.status_code == 200 and len(r.json()["profiles"]) == 3
+    assert r.status_code == 200 and len(r.json()["profiles"]) == 4
     assert c.get("/api/servicetag/ZZZZZZZ").status_code == 400  # API 키 없음
     r = c.post("/api/estimate", json={"model": "PowerEdge R650", "text": "2 x Intel Xeon Gold 6338 (205W)\n16 x 32GB RDIMM, 3200MT/s"})
     assert r.status_code == 200
+
+
+@pytest.mark.parametrize("tag,default,has_dapc", [
+    ("DEMO760", "balanced", True),   # Intel -> PPW(DAPC)
+    ("DEMO7625", "ppw_os", False),   # AMD   -> PPW(OS), DAPC 없음
+])
+def test_default_profile(tag, default, has_dapc):
+    a = lookup(tag)
+    r = estimate(build_config(a["model"], a["items"]))
+    assert r["default_profile"]["key"] == default
+    assert r["profiles"][0]["key"] == default and r["profiles"][0]["is_default"]
+    assert r["profiles"][0]["vs_default"] == {"idle": 0, "typical": 0, "max": 0}
+    assert r["default_profile"]["points"]["typical"] == r["profiles"][0]["points"]["typical"]["ac_watts"]
+    assert ("balanced" in [x["key"] for x in r["profiles"]]) == has_dapc
+    low = next(x for x in r["profiles"] if x["key"] == "low_power")
+    assert low["vs_default"]["max"] < 0 and low["vs_default_cost"] < 0

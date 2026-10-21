@@ -6,9 +6,9 @@
 <title>PowerEdge 전력 계산기</title>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--fg:#1b1f24;--mut:#5f6b7a;--line:#e3e6ea;--acc:#0076ce;
-  --perf:#d9480f;--bal:#0076ce;--low:#2b8a3e;--warn-bg:#fff4e5;--warn:#8a4b00}
+  --perf:#d9480f;--bal:#0076ce;--os:#7048e8;--low:#2b8a3e;--warn-bg:#fff4e5;--warn:#8a4b00}
 @media (prefers-color-scheme:dark){:root{--bg:#111418;--card:#1a1e24;--fg:#e8eaed;--mut:#9aa4b1;
-  --line:#2b313a;--acc:#4ea3ff;--perf:#ff8a5c;--bal:#4ea3ff;--low:#5fcf75;--warn-bg:#3a2a12;--warn:#ffc46b}}
+  --line:#2b313a;--acc:#4ea3ff;--perf:#ff8a5c;--bal:#4ea3ff;--os:#a58bff;--low:#5fcf75;--warn-bg:#3a2a12;--warn:#ffc46b}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"Segoe UI","Noto Sans KR",sans-serif}
 header{background:#0076ce;color:#fff;padding:14px 16px}
@@ -42,6 +42,12 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .err{background:#fde8e8;color:#a61b1b;border-radius:8px;padding:10px 12px}
 .meta{color:var(--mut);font-size:12px}
 .hidden{display:none}
+.badge{display:inline-block;background:var(--c);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px;margin-left:6px;vertical-align:middle}
+.def{border:2px solid var(--acc)}
+.def .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.def .tile{background:var(--bg);border-radius:8px;padding:10px;text-align:center}
+.def .tile b{display:block;font-size:19px;white-space:nowrap;color:var(--acc)}
+.up{color:var(--perf)}.down{color:var(--low)}
 h2{font-size:15px;margin:0 0 10px}
 </style>
 </head>
@@ -85,7 +91,7 @@ h2{font-size:15px;margin:0 0 10px}
 </main>
 <script>
 const $=id=>document.getElementById(id);
-const COLORS={performance:'var(--perf)',balanced:'var(--bal)',low_power:'var(--low)'};
+const COLORS={performance:'var(--perf)',balanced:'var(--bal)',ppw_os:'var(--os)',low_power:'var(--low)'};
 const CAT={cpu:'CPU',memory:'메모리',drive:'드라이브',controller:'RAID/HBA',boss:'BOSS',nic:'NIC/FC',gpu:'GPU',platform:'플랫폼',fan:'팬',psu:'PSU'};
 let mode='tag', last=null;
 const fmt=n=>n==null?'-':Number(n).toLocaleString('ko-KR');
@@ -125,11 +131,27 @@ function render(d){
   let h=`<section class="card"><h2>${esc(d.model)} <span class="meta">(${d.form_factor})</span></h2>
   <div class="meta">${a.service_tag?'서비스태그 '+esc(a.service_tag)+' · ':''}${a.ship_date?'출하 '+esc(a.ship_date.slice(0,10))+' · ':''}출처: ${esc(a.source||'-')}
   · PSU: ${d.psu.watts?d.psu.watts+'W':'?'} × ${d.psu.count} (${d.psu.rating})</div></section>`;
+  const df=d.default_profile;
+  if(df&&df.points){
+    h+=`<section class="card def"><h2>기본설정 전력 <span class="meta">(출하 BIOS 기본값)</span></h2>
+    <div class="meta">${esc(df.bios)}</div>
+    <div class="tiles"><div class="tile">유휴<b>${fmt(Math.round(df.points.idle))}W</b></div>
+    <div class="tile">일반 ${Math.round(d.assumptions.typical_utilization*100)}%<b>${fmt(Math.round(df.points.typical))}W</b></div>
+    <div class="tile">최대<b>${fmt(Math.round(df.points.max))}W</b></div></div>
+    <div class="kv" style="margin-top:8px"><span>연간 전력량 / 요금</span><b>${fmt(df.annual_kwh)} kWh · ₩${fmt(df.annual_cost)}</b></div></section>`;
+    const sg=v=>v>0?`<span class="up">+${fmt(v)}</span>`:v<0?`<span class="down">${fmt(v)}</span>`:'—';
+    h+=`<section class="card"><h2>기본설정 대비 비교 (AC W)</h2><div class="tbl"><table>
+    <tr><th>프로파일</th><th class="n">유휴</th><th class="n">일반</th><th class="n">최대</th><th class="n">연간 요금</th></tr>
+    ${d.profiles.map(p=>`<tr><td>${esc(p.name)}${p.is_default?' <b>(기본)</b>':''}</td>
+      ${['idle','typical','max'].map(k=>`<td class="n">${fmt(p.points[k].ac_watts)}<br><span class="meta">${p.is_default?'기준':sg(p.vs_default[k])}</span></td>`).join('')}
+      <td class="n">${p.is_default?'기준':sg(p.vs_default_cost)+'원'}</td></tr>`).join('')}
+    </table></div></section>`;
+  }
   h+=d.warnings.map(w=>`<div class="warn">⚠ ${esc(w)}</div>`).join('');
   h+='<div class="grid">';
   for(const p of d.profiles){
     const c=COLORS[p.key], P=p.points;
-    h+=`<section class="card prof" style="--c:${c}"><h3>${esc(p.name)}</h3><div class="bios">${esc(p.bios)}</div>
+    h+=`<section class="card prof" style="--c:${c}"><h3>${esc(p.name)}${p.is_default?'<span class="badge">기본설정</span>':''}</h3><div class="bios">${esc(p.bios)}</div>
     <div class="kv"><span>일반 (${Math.round(d.assumptions.typical_utilization*100)}%)</span><span class="big">${fmt(P.typical.ac_watts)} W</span></div>
     <div class="bars">${['idle','typical','max'].map(k=>`<div class="bar"><span>${{idle:'유휴',typical:'일반',max:'최대'}[k]}</span>
       <div class="fill" style="width:${(P[k].ac_watts/peak*100*0.7).toFixed(1)}%"></div><b>${fmt(P[k].ac_watts)}W${P[k].capped?' (cap)':''}</b></div>`).join('')}</div>
@@ -142,7 +164,7 @@ function render(d){
   }
   h+='</div>';
   h+=`<section class="card"><h2>부품별 전력 (DC)</h2>
-  <div class="row"><div><label>프로파일</label><select id="bp" onchange="bd()">${d.profiles.map(p=>`<option value="${p.key}">${esc(p.name)}</option>`).join('')}</select></div>
+  <div class="row"><div><label>프로파일</label><select id="bp" onchange="bd()">${d.profiles.map(p=>`<option value="${p.key}">${esc(p.name)}${p.is_default?' (기본설정)':''}</option>`).join('')}</select></div>
   <div><label>부하</label><select id="bl" onchange="bd()"><option value="idle">유휴</option><option value="typical" selected>일반</option><option value="max">최대</option></select></div></div>
   <div class="tbl" id="bdt"></div>
   <button class="btn" style="background:transparent;color:var(--acc);border:1px solid var(--acc)" onclick="csv()">CSV 다운로드</button></section>`;

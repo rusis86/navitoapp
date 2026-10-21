@@ -56,6 +56,16 @@ PROFILES: dict[str, Profile] = {
         mem_factor=1.0, mem_idle_factor=0.9,
         fan_floor=0.18, fan_max=0.65,
     ),
+    "ppw_os": Profile(
+        key="ppw_os",
+        name="밸런스 (Performance Per Watt - OS)",
+        bios="System Profile = Performance Per Watt (OS)",
+        description="C-State 활성, Turbo 활성, P-State를 OS 전원정책(governor)이 제어. "
+                    "OS가 balanced/ondemand 정책일 때 기준. AMD 플랫폼의 출하 기본값.",
+        cpu_idle_frac=0.20, cpu_max_frac=1.0, cpu_curve=0.95,
+        mem_factor=1.0, mem_idle_factor=0.9,
+        fan_floor=0.18, fan_max=0.65,
+    ),
     "low_power": Profile(
         key="low_power",
         name="저전력 (Custom - Power Saving)",
@@ -180,11 +190,33 @@ def _to_wall(dc: float, psu: dict) -> tuple[float, float]:
     return dc / eff, eff
 
 
+def default_profile_key(cfg: HardwareConfig) -> str:
+    """출하 기본 BIOS System Profile.
+
+    Intel 플랫폼: Performance Per Watt (DAPC)
+    AMD 플랫폼:   Performance Per Watt (OS)  (DAPC 옵션 없음)
+    """
+    cpus = cfg.of("cpu")
+    if cpus and cpus[0].attrs.get("vendor") == "AMD":
+        return "ppw_os"
+    return "balanced"
+
+
+def available_profiles(cfg: HardwareConfig) -> list[str]:
+    keys = list(PROFILES)
+    if default_profile_key(cfg) == "ppw_os":
+        keys.remove("balanced")  # AMD BIOS에는 DAPC가 없음
+    # 기본설정을 맨 앞으로
+    d = default_profile_key(cfg)
+    return [d] + [k for k in keys if k != d]
+
+
 def estimate(cfg: HardwareConfig, utilization: float = DEFAULT_UTILIZATION,
              kwh_rate: float = 180.0, pue: float = 1.0, voltage: float = 220.0,
              power_cap: float | None = None, profiles: list[str] | None = None) -> dict:
     psu = psu_info(cfg)
-    keys = profiles or list(PROFILES)
+    default_key = default_profile_key(cfg)
+    keys = profiles or available_profiles(cfg)
     results = []
     for key in keys:
         prof = PROFILES[key]
@@ -210,6 +242,7 @@ def estimate(cfg: HardwareConfig, utilization: float = DEFAULT_UTILIZATION,
         annual_kwh = typ * 8760 / 1000 * pue
         results.append({
             "key": prof.key,
+            "is_default": prof.key == default_key,
             "name": prof.name,
             "bios": prof.bios,
             "description": prof.description,
@@ -217,6 +250,15 @@ def estimate(cfg: HardwareConfig, utilization: float = DEFAULT_UTILIZATION,
             "annual_kwh": round(annual_kwh, 0),
             "annual_cost": round(annual_kwh * kwh_rate, 0),
         })
+
+    base = next((r for r in results if r["is_default"]), None)
+    if base:
+        for r in results:
+            r["vs_default"] = {
+                k: round(r["points"][k]["ac_watts"] - base["points"][k]["ac_watts"], 1)
+                for k in ("idle", "typical", "max")
+            }
+            r["vs_default_cost"] = round(r["annual_cost"] - base["annual_cost"], 0)
 
     warnings = _warnings(cfg, psu, results)
     return {
@@ -230,6 +272,15 @@ def estimate(cfg: HardwareConfig, utilization: float = DEFAULT_UTILIZATION,
             "voltage": voltage,
             "power_factor": 0.98,
             "power_cap": power_cap,
+        },
+        "default_profile": {
+            "key": default_key,
+            "name": PROFILES[default_key].name,
+            "bios": PROFILES[default_key].bios,
+            "points": {k: base["points"][k]["ac_watts"] for k in ("idle", "typical", "max")}
+            if base else None,
+            "annual_kwh": base["annual_kwh"] if base else None,
+            "annual_cost": base["annual_cost"] if base else None,
         },
         "profiles": results,
         "warnings": warnings,

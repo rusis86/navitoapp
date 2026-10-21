@@ -5,8 +5,10 @@ BIOS 시스템 프로파일별 소비전력을 추정합니다.
 
 | 프로파일 | BIOS 설정 | 특징 |
 |---|---|---|
+| **기본설정** | 출하 기본 System Profile | Intel = PPW(DAPC), AMD = PPW(OS). 결과 상단에 별도 표시, 다른 프로파일은 기본설정 대비 증감으로 비교 |
 | 퍼포먼스 | System Profile = Performance | C-State off, Turbo on → 유휴 전력 최고 |
-| 밸런스 | Performance Per Watt (DAPC) | Dell 기본값, 부하 비례 |
+| 밸런스 (DAPC) | Performance Per Watt (DAPC) | Intel 기본값, 하드웨어 P-State 제어 (AMD는 미제공) |
+| 밸런스 (OS) | Performance Per Watt (OS) | OS governor 제어, AMD 기본값 |
 | 저전력 | Custom: Turbo off, C-State on, EEP=Power, 메모리 주파수 하향 | 최대 전력 약 15~20% 절감 |
 
 출력: 유휴/일반/최대 AC 전력(W), 발열(BTU/h), 전류(A), 연간 kWh·전기요금, 부품별 DC 분해,
