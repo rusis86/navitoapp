@@ -150,7 +150,7 @@ function render(d){
   const df=d.default_profile;
   if(df&&df.points){
     h+=`<section class="card def"><h2>기본설정 전력 <span class="meta">(출하 BIOS 기본값)</span></h2>
-    <div class="meta">${esc(df.bios)}${df.source==='order'?' · <b>주문 구성에 지정된 BIOS 설정</b>':' · 플랫폼 출하 기본값'}</div>
+    <div class="meta">${esc(df.bios)}${df.source==='order'?` · <b>주문 옵션: ${esc(df.order_option||'BIOS 설정')}</b>`:' · 플랫폼 출하 기본값'}</div>
     <div class="tiles"><div class="tile">유휴<b>${fmt(Math.round(df.points.idle))}W</b></div>
     <div class="tile">일반 ${Math.round(d.assumptions.typical_utilization*100)}%<b>${fmt(Math.round(df.points.typical))}W</b></div>
     <div class="tile">최대<b>${fmt(Math.round(df.points.max))}W</b></div></div>

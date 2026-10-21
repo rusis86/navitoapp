@@ -201,7 +201,7 @@ def default_profile_key(cfg: HardwareConfig) -> str:
     AMD 플랫폼:   Performance Per Watt (OS)  (DAPC 옵션 없음)
     """
     if cfg.factory_profile in PROFILES:
-        return cfg.factory_profile  # 주문 시 BIOS 프로파일이 지정된 경우
+        return cfg.factory_profile  # 주문 시 BIOS 프로파일이 지정된 경우 (성능 BIOS 설정)
     cpus = cfg.of("cpu")
     if cpus and cpus[0].attrs.get("vendor") == "AMD":
         return "ppw_os"
@@ -282,7 +282,9 @@ def estimate(cfg: HardwareConfig, utilization: float = DEFAULT_UTILIZATION,
         },
         "default_profile": {
             "key": default_key,
-            "source": "order" if cfg.factory_profile == default_key else "platform",
+            "source": "order" if cfg.factory_profile in (default_key, "power_saving") else "platform",
+            "order_option": {"performance": "성능 BIOS 설정", "power_saving": "절전 BIOS 설정"}
+            .get(cfg.factory_profile or ""),
             "name": PROFILES[default_key].name,
             "bios": PROFILES[default_key].bios,
             "points": {k: base["points"][k]["ac_watts"] for k in ("idle", "typical", "max")}

@@ -161,3 +161,25 @@ def test_csv_api():
     body = r.json()
     assert body["model"] == "PowerEdge R760" and body["asset"]["service_tag"] == "B5VBTB4"
     assert c.post("/api/estimate/csv", json={"csv": ""}).status_code == 400
+
+
+FIXTURE_7725 = Path(__file__).parent / "fixtures" / "r7725_gpu_order_ko.csv"
+
+
+def test_csv_r7725_gpu():
+    parsed = parse_dell_csv(FIXTURE_7725.read_text(encoding="utf-8-sig"), "8YHFVH4.csv")
+    cfg = build_config(parsed["model"], parsed["items"])
+    q = lambda cat: sum(c.quantity for c in cfg.of(cat))  # noqa: E731
+    assert parsed["model"] == "PowerEdge R7725" and parsed["service_tag"] == "8YHFVH4"
+    assert q("cpu") == 2 and cfg.of("cpu")[0].attrs["vendor"] == "AMD"
+    assert q("gpu") == 2 and cfg.of("gpu")[0].attrs["tdp"] == 450   # 랙 서버 기준 450W (XE 600W 아님)
+    assert q("boss") == 1                          # 캐리어/라벨 행은 세지 않음
+    assert q("memory") == 16 and q("drive") == 4
+    assert cfg.of("drive")[0].attrs["kind"] == "SSD_NVME_GEN5"
+    assert q("transceiver") == 4 and q("psu") == 2
+    assert cfg.of("fan")[0].attrs["tier"] == "VHP"  # 17G 플래티넘 팬
+    assert cfg.unrecognized == []
+    r = estimate(cfg)
+    assert cfg.factory_profile == "power_saving"   # 384-BBBH 절전 BIOS 설정
+    assert r["default_profile"]["key"] == "ppw_os" and r["default_profile"]["source"] == "order"
+    assert "balanced" not in [p["key"] for p in r["profiles"]]   # AMD: DAPC 없음

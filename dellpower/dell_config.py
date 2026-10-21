@@ -28,8 +28,8 @@ KEY_PART = {
     "nic": re.compile(r"^(ASSY,)?CRD,(NTWK|CTL|LOM|OCP)|^ASSY,CRD,LOM", re.I),
     "controller": re.compile(r"^(ASSY,)?CRD,CTL", re.I),
     "psu": re.compile(r"^PWR ?SPLY|^ASSY,PWR,SPLY|^PSU,", re.I),
-    "gpu": re.compile(r"^(ASSY,)?(CRD,)?(GPU|GRPH|ACCEL)", re.I),
-    "boss": re.compile(r"^(ASSY,)?CRD,.*BOSS|BOSS", re.I),
+    "gpu": re.compile(r"^(ASSY,)?(CRD,)?(GPU|GRPH|ACCEL|ACLTR)", re.I),
+    "boss": re.compile(r"^(ASSY,)?CRD,(CTL,)?BOSS", re.I),
     "transceiver": re.compile(r"transceiver|^XCVR|^(ASSY,)?OPT", re.I),
     "fan": re.compile(r"^ASSY,FAN", re.I),
 }

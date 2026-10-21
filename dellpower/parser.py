@@ -46,7 +46,7 @@ _KO_EN = [
     ("히트싱크", "Heatsink"), ("마더보드", "Motherboard"), ("라이저", "Riser"),
     ("레일", "Rail"), ("베젤", "Bezel"), ("블랭크", "Blank"), ("배송", "Shipping"),
     ("케이블", "Cable"), ("메자닌", "Mezzanine"), ("팬", "Fan"), ("서버", "Server"),
-    ("성능 BIOS 설정", "Performance BIOS Settings"),
+    ("성능 BIOS 설정", "Performance BIOS Settings"), ("절전 BIOS 설정", "Power Saving BIOS Settings"),
     ("필요 없음", "None"), ("불필요", "None"), ("없음", "None"), ("미구성", "Unconfigured"),
 ]
 
@@ -62,6 +62,8 @@ _NONE = re.compile(
     r"\b(none|not included|not installed|not required|blank|filler|disabled|unconfigured)\b",
     re.IGNORECASE)
 _PERF_BIOS = re.compile(r"performance bios|enable performance mode", re.IGNORECASE)
+# '절전 BIOS 설정'(384-BBBH)은 Dell 출하 기본 프로파일(Performance Per Watt)을 그대로 유지하는 옵션
+_SAVE_BIOS = re.compile(r"power saving bios|enable power savings mode", re.IGNORECASE)
 
 # 전력과 무관하거나 무시할 항목
 _IGNORE = re.compile(
@@ -268,7 +270,7 @@ def classify(description: str) -> str | None:
     d = normalize_text(description)
     if not d:
         return "ignore"
-    if _NONE.search(d):
+    if _NONE.search(d) or re.search(r"heatsink|heat sink", d, re.I):
         return "ignore"
     if re.search(r"transceiver|\boptic", d, re.I):
         return "transceiver"
@@ -310,6 +312,8 @@ def build_config(model: str, items: list[dict]) -> HardwareConfig:
         norm = normalize_text(desc)
         if _PERF_BIOS.search(norm):
             cfg.factory_profile = "performance"
+        elif _SAVE_BIOS.search(norm) and not cfg.factory_profile:
+            cfg.factory_profile = "power_saving"
         cat = "ignore" if it.get("info_only") else classify(desc)
         if cat == "ignore":
             cfg.ignored.append(desc)
@@ -331,9 +335,10 @@ def build_config(model: str, items: list[dict]) -> HardwareConfig:
 
 def _parse_fan(desc: str) -> dict:
     d = desc.upper()
-    if "VERY HIGH PERFORMANCE" in d or "VHP" in d:
+    # 17G 플래티넘 팬(PLTM, UHP) / 16G 이전 Very High Performance 팬
+    if re.search(r"VERY HIGH PERFORMANCE|\bVHP\b|PLATINUM|PLTM|\bUHP\b", d):
         return {"tier": "VHP", "multiplier": 1.6}
-    if "HIGH PERFORMANCE" in d or "GOLD" in d:
+    if "HIGH PERFORMANCE" in d or "GOLD" in d or "HPR" in d:
         return {"tier": "HP", "multiplier": 1.3}
     return {"tier": "STD", "multiplier": 1.0}
 
