@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PowerEdge 전력 계산기</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1b1f24;--mut:#5f6b7a;--line:#e3e6ea;--acc:#0076ce;
+  --perf:#d9480f;--bal:#0076ce;--low:#2b8a3e;--warn-bg:#fff4e5;--warn:#8a4b00}
+@media (prefers-color-scheme:dark){:root{--bg:#111418;--card:#1a1e24;--fg:#e8eaed;--mut:#9aa4b1;
+  --line:#2b313a;--acc:#4ea3ff;--perf:#ff8a5c;--bal:#4ea3ff;--low:#5fcf75;--warn-bg:#3a2a12;--warn:#ffc46b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"Segoe UI","Noto Sans KR",sans-serif}
+header{background:#0076ce;color:#fff;padding:14px 16px}
+header h1{margin:0;font-size:18px}header p{margin:2px 0 0;opacity:.85;font-size:12px}
+main{max-width:1100px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
+.tabs{display:flex;gap:6px;margin-bottom:12px}
+.tabs button{flex:1;padding:8px;border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:8px;cursor:pointer}
+.tabs button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
+input,textarea,select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font:inherit}
+textarea{min-height:160px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>div{flex:1;min-width:130px}
+.btn{margin-top:12px;padding:10px 18px;border:0;border-radius:8px;background:var(--acc);color:#fff;font-weight:600;cursor:pointer;width:100%}
+.hint{font-size:12px;color:var(--mut);margin-top:6px}
+.chip{display:inline-block;padding:2px 8px;border:1px solid var(--line);border-radius:12px;margin:2px;cursor:pointer;font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.prof{border-top:4px solid var(--c)}
+.prof h3{margin:0 0 4px;font-size:15px}.prof .bios{font-size:11px;color:var(--mut);margin-bottom:8px}
+.kv{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--line)}
+.kv b{font-variant-numeric:tabular-nums}
+.big{font-size:22px;font-weight:700;color:var(--c)}
+.bars .bar{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px}
+.bars .bar span:first-child{width:90px;color:var(--mut)}
+.bars .fill{height:14px;border-radius:4px;background:var(--c)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{text-align:left;padding:6px;border-bottom:1px solid var(--line);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tbl{overflow-x:auto}
+.warn{background:var(--warn-bg);color:var(--warn);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.err{background:#fde8e8;color:#a61b1b;border-radius:8px;padding:10px 12px}
+.meta{color:var(--mut);font-size:12px}
+.hidden{display:none}
+h2{font-size:15px;margin:0 0 10px}
+</style>
+</head>
+<body>
+<header><h1>Dell PowerEdge 전력 계산기</h1>
+<p>서비스태그 → 출하 구성 조회 → BIOS 프로파일별(퍼포먼스/밸런스/저전력) 소비전력 추정</p></header>
+<main>
+<section class="card">
+  <div class="tabs">
+    <button id="t-tag" class="on" onclick="tab('tag')">서비스태그</button>
+    <button id="t-man" onclick="tab('man')">구성 직접 입력</button>
+  </div>
+  <div id="p-tag">
+    <label>서비스태그</label>
+    <input id="tag" placeholder="예: ABC1234" autocapitalize="characters">
+    <div class="hint" id="apiState"></div>
+    <div id="demos"></div>
+  </div>
+  <div id="p-man" class="hidden">
+    <label>모델명</label><input id="model" value="PowerEdge R760">
+    <label style="margin-top:8px">구성 (한 줄에 하나, "수량 x 부품설명")</label>
+    <textarea id="text">2 x Intel Xeon Gold 6430 2.1G, 32C/64T, Turbo, HT (270W) DDR5-4400
+16 x 64GB RDIMM, 4800MT/s Dual Rank
+1 x PERC H755 SAS Front
+8 x 3.84TB NVMe Read Intensive U2 Gen4
+1 x BOSS-N1 controller card + with 2 M.2 480GB
+1 x Broadcom 57504 Quad Port 10/25GbE SFP28 OCP NIC 3.0
+1 x Dual, Fully Redundant(1+1), Hot-Plug Power Supply, 1400W Titanium</textarea>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <div><label>일반 부하율 (%)</label><input id="util" type="number" value="50" min="0" max="100"></div>
+    <div><label>전기요금 (원/kWh)</label><input id="rate" type="number" value="180"></div>
+    <div><label>PUE</label><input id="pue" type="number" value="1.0" step="0.1" min="1"></div>
+    <div><label>전압 (V)</label><select id="volt"><option>220</option><option>208</option><option>110</option></select></div>
+    <div><label>iDRAC Power Cap (W, 선택)</label><input id="cap" type="number" placeholder="없음"></div>
+  </div>
+  <button class="btn" onclick="run()">전력 계산</button>
+</section>
+
+<div id="out"></div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const COLORS={performance:'var(--perf)',balanced:'var(--bal)',low_power:'var(--low)'};
+const CAT={cpu:'CPU',memory:'메모리',drive:'드라이브',controller:'RAID/HBA',boss:'BOSS',nic:'NIC/FC',gpu:'GPU',platform:'플랫폼',fan:'팬',psu:'PSU'};
+let mode='tag', last=null;
+const fmt=n=>n==null?'-':Number(n).toLocaleString('ko-KR');
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function tab(m){mode=m;$('t-tag').classList.toggle('on',m==='tag');$('t-man').classList.toggle('on',m==='man');
+  $('p-tag').classList.toggle('hidden',m!=='tag');$('p-man').classList.toggle('hidden',m!=='man');}
+
+fetch('/api/info').then(r=>r.json()).then(i=>{
+  $('apiState').textContent=i.dell_api_configured?'Dell TechDirect API 연결됨':'Dell API 키 미설정 — 데모 태그 또는 직접 입력을 사용하세요';
+  $('demos').innerHTML='<span class="hint">데모: </span>'+i.demo_tags.map(t=>`<span class="chip" onclick="$('tag').value='${t}';run()">${t}</span>`).join('');
+});
+
+function opts(){return{utilization:Math.min(100,Math.max(0,+$('util').value||0))/100,kwh_rate:+$('rate').value||0,
+  pue:Math.max(1,+$('pue').value||1),voltage:+$('volt').value,power_cap:$('cap').value?+$('cap').value:null};}
+
+async function run(){
+  const o=opts(); $('out').innerHTML='<div class="card">계산 중…</div>';
+  try{
+    let r;
+    if(mode==='tag'){
+      const tag=$('tag').value.trim(); if(!tag) throw new Error('서비스태그를 입력하세요');
+      const q=new URLSearchParams({utilization:o.utilization,kwh_rate:o.kwh_rate,pue:o.pue,voltage:o.voltage});
+      if(o.power_cap) q.set('power_cap',o.power_cap);
+      r=await fetch(`/api/servicetag/${encodeURIComponent(tag)}?${q}`);
+    }else{
+      r=await fetch('/api/estimate',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({model:$('model').value,text:$('text').value,options:o})});
+    }
+    const d=await r.json(); if(!r.ok) throw new Error(d.detail||'오류');
+    last=d; render(d);
+  }catch(e){$('out').innerHTML=`<div class="card err">${esc(e.message)}</div>`;}
+}
+
+function render(d){
+  const a=d.asset||{}, peak=Math.max(...d.profiles.map(p=>p.points.max.ac_watts));
+  let h=`<section class="card"><h2>${esc(d.model)} <span class="meta">(${d.form_factor})</span></h2>
+  <div class="meta">${a.service_tag?'서비스태그 '+esc(a.service_tag)+' · ':''}${a.ship_date?'출하 '+esc(a.ship_date.slice(0,10))+' · ':''}출처: ${esc(a.source||'-')}
+  · PSU: ${d.psu.watts?d.psu.watts+'W':'?'} × ${d.psu.count} (${d.psu.rating})</div></section>`;
+  h+=d.warnings.map(w=>`<div class="warn">⚠ ${esc(w)}</div>`).join('');
+  h+='<div class="grid">';
+  for(const p of d.profiles){
+    const c=COLORS[p.key], P=p.points;
+    h+=`<section class="card prof" style="--c:${c}"><h3>${esc(p.name)}</h3><div class="bios">${esc(p.bios)}</div>
+    <div class="kv"><span>일반 (${Math.round(d.assumptions.typical_utilization*100)}%)</span><span class="big">${fmt(P.typical.ac_watts)} W</span></div>
+    <div class="bars">${['idle','typical','max'].map(k=>`<div class="bar"><span>${{idle:'유휴',typical:'일반',max:'최대'}[k]}</span>
+      <div class="fill" style="width:${(P[k].ac_watts/peak*100*0.7).toFixed(1)}%"></div><b>${fmt(P[k].ac_watts)}W${P[k].capped?' (cap)':''}</b></div>`).join('')}</div>
+    <div class="kv"><span>최대 발열</span><b>${fmt(P.max.btu_per_hr)} BTU/h</b></div>
+    <div class="kv"><span>최대 전류 @${d.assumptions.voltage}V</span><b>${P.max.amps} A</b></div>
+    <div class="kv"><span>일반 전류 @${d.assumptions.voltage}V</span><b>${P.typical.amps} A</b></div>
+    <div class="kv"><span>연간 전력량${d.assumptions.pue>1?' (PUE '+d.assumptions.pue+')':''}</span><b>${fmt(p.annual_kwh)} kWh</b></div>
+    <div class="kv"><span>연간 전기요금</span><b>₩${fmt(p.annual_cost)}</b></div>
+    <p class="hint">${esc(p.description)}</p></section>`;
+  }
+  h+='</div>';
+  h+=`<section class="card"><h2>부품별 전력 (DC)</h2>
+  <div class="row"><div><label>프로파일</label><select id="bp" onchange="bd()">${d.profiles.map(p=>`<option value="${p.key}">${esc(p.name)}</option>`).join('')}</select></div>
+  <div><label>부하</label><select id="bl" onchange="bd()"><option value="idle">유휴</option><option value="typical" selected>일반</option><option value="max">최대</option></select></div></div>
+  <div class="tbl" id="bdt"></div>
+  <button class="btn" style="background:transparent;color:var(--acc);border:1px solid var(--acc)" onclick="csv()">CSV 다운로드</button></section>`;
+  const cfg=d.config;
+  if(cfg.unrecognized.length) h+=`<section class="card"><h2>분류하지 못한 항목 (계산 제외)</h2><ul>${cfg.unrecognized.map(u=>`<li>${esc(u)}</li>`).join('')}</ul></section>`;
+  h+=`<section class="card"><h2>인식된 구성</h2><div class="tbl"><table><tr><th>구분</th><th>부품</th><th class="n">수량</th><th>해석</th></tr>
+  ${cfg.components.map(c=>`<tr><td>${CAT[c.category]||c.category}</td><td>${esc(c.description)}</td><td class="n">${c.quantity}</td><td class="meta">${esc(Object.entries(c.attrs).filter(([,v])=>v!=null).map(([k,v])=>k+'='+v).join(', '))}</td></tr>`).join('')}</table></div></section>`;
+  h+=`<p class="hint">※ 공개 TDP·데이터시트 기반 추정치입니다. 실제 값은 펌웨어, 워크로드, 흡기온도에 따라 달라지며, 최종 설계는 Dell EIPT 또는 iDRAC 실측값으로 검증하세요.</p>`;
+  $('out').innerHTML=h; bd();
+}
+
+function bd(){
+  const p=last.profiles.find(x=>x.key===$('bp').value), pt=p.points[$('bl').value];
+  $('bdt').innerHTML=`<table><tr><th>구분</th><th>부품</th><th class="n">수량</th><th class="n">개당 W</th><th class="n">합계 W</th></tr>
+  ${pt.breakdown.map(r=>`<tr><td>${CAT[r.category]||r.category}</td><td>${esc(r.label)}</td><td class="n">${r.quantity}</td><td class="n">${r.watts_each}</td><td class="n">${r.watts}</td></tr>`).join('')}
+  <tr><th colspan="4">DC 합계</th><th class="n">${pt.dc_watts}</th></tr>
+  <tr><td colspan="4">PSU 효율 ${(pt.psu_efficiency*100).toFixed(1)}% 반영 → AC(벽전원)</td><th class="n">${pt.ac_watts}</th></tr></table>`;
+}
+
+function csv(){
+  const rows=[['profile','load','category','component','qty','watts_each','watts']];
+  for(const p of last.profiles) for(const k of ['idle','typical','max']){
+    for(const r of p.points[k].breakdown) rows.push([p.key,k,r.category,r.label,r.quantity,r.watts_each,r.watts]);
+    rows.push([p.key,k,'TOTAL_DC','','','',p.points[k].dc_watts]);rows.push([p.key,k,'TOTAL_AC','','','',p.points[k].ac_watts]);}
+  const s='﻿'+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([s],{type:'text/csv'}));
+  a.download=`power_${(last.asset.service_tag||last.model).replace(/\s+/g,'_')}.csv`;a.click();
+}
+$('tag').addEventListener('keydown',e=>{if(e.key==='Enter')run();});
+</script>
+</body>
+</html>
